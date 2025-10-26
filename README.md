@@ -1,9 +1,5 @@
-# Schaatseb — Head to Head (PDF → H2H) — FIXED PARSER
+# Schaatseb — Head to Head (PDF → H2H) — CDNJS BUILD
 
-Deze versie bevat een **robuustere parser**:
-- pdf.js leest pagina-tekst met `normalizeWhitespace: true` en voegt **spaties** toe i.p.v. harde enters.
-- Regex die `wt` en `rd` entries herkent, zelfs als de PDF de regels anders afbreekt.
-- **Fallback pairing**: 1e `wt` met 1e `rd` => rit 1, etc. (ritnummers lineair als ze niet expliciet te vinden zijn).
-- Debug-paneel (uitklapbaar) om foutmeldingen te tonen.
+**Fix voor `pdfjsLib is not defined`:** we pinnen pdf.js aan **cdnjs v3.11.174** en zetten de **workerSrc** naar dezelfde CDN/versie. Dit levert een globale `pdfjsLib` op die overal werkt (ook GitHub Pages).
 
-Alle overige features zijn gelijk aan de vorige versie.
+Overig: zelfde robuuste parser + debug-paneel.

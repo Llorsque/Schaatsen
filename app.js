@@ -1,8 +1,7 @@
 /**
- * Schaatseb — Head to Head (robust parser)
- * - Leest tekst uit geüploade PDF met pdf.js
- * - Parser is toleranter voor spaties/enter-variaties en ontbrekende 'rit' kopjes
- * - Pairt 'wt' en 'rd' in volgorde als fallback en nummert ritten 1..N
+ * Schaatseb — Head to Head (cdnjs pdf.js)
+ * - pdf.js via cdnjs v3 UMD (global pdfjsLib)
+ * - Robuuste parser + debug
  */
 
 const els = {
@@ -44,6 +43,10 @@ function go(delta){
 async function onFile(ev){
   const file = ev.target.files?.[0];
   if(!file){ return; }
+  if (!window['pdfjsLib']) {
+    setStatus("pdf.js kon niet geladen worden. Controleer je internet of CDN.");
+    return;
+  }
   try{
     setStatus("PDF laden…");
     const buf = await file.arrayBuffer();
@@ -53,7 +56,6 @@ async function onFile(ev){
     for(let i=1;i<=pdf.numPages;i++){
       const page = await pdf.getPage(i);
       const tc = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
-      // Combineer alle items met spaties (betere robuustheid dan harde newlines)
       const pageText = tc.items.map(t => (t.str||"")).join(" ");
       text += " " + pageText;
     }
@@ -73,22 +75,13 @@ async function onFile(ev){
 function setStatus(msg){ els.status.textContent = msg; }
 function showDebug(s){ els.debugBox.hidden = false; els.debugText.textContent = s; }
 
-/**
- * Parsing strategy (robuust):
- * 1) Metadata: losse regexen op de samengevoegde tekst.
- * 2) Vind alle 'wt <bib> <naam...> <cat> <land> <tijden>' en 'rd ...' met flexibele regex.
- * 3) Pair in volgorde (wt1+rd1 => rit1, etc.). Als een ritnummer gevonden wordt, gebruiken we dat,
- *    anders nummeren we lineair.
- */
 function parseText(text){
-  // normaliseer whitespace
   let norm = text
     .replace(/\u00A0/g, " ")
     .replace(/[ \t]+/g," ")
     .replace(/\s{2,}/g," ")
     .trim();
 
-  // metadata
   const eventMatch =
     norm.match(/World\s*Cup.*?Kwalificatie.*?Toernooi|Kwalificatie.*?Toernooi|World\s*Cup.*?Toernooi/i);
   const distanceMatch =
@@ -104,7 +97,6 @@ function parseText(text){
   if(thialf) extraHints.push(tidy(thialf[0]));
   state.meta.extras = extraHints.join(" · ");
 
-  // Alle wt/rd lijnen (flexibel):
   const rxEntry = /\b(wt|rd)\s+(\d+)\s+(.+?)\s+([A-ZÄÖÜ]{1,5}\d?)\s+([A-Z]{3})\s+((?:\d{1,2}:\d{2}\.\d{2}\s*){1,3})/gi;
   const entries = [];
   let m;
@@ -119,7 +111,6 @@ function parseText(text){
     entries.push({ lane, bib, name, cat, nation, pr, st, time: raceTime });
   }
 
-  // Pair wt & rd in volgorde
   const heats = [];
   let wtQ = entries.filter(e=>e.lane==="wt");
   let rdQ = entries.filter(e=>e.lane==="rd");
@@ -127,19 +118,16 @@ function parseText(text){
   for(let i=0;i<n;i++){
     heats.push({ no: i+1, wt: wtQ[i], rd: rdQ[i] });
   }
-
   state.heats = heats;
 }
 
 function tidy(s){ return s.replace(/\s+/g," ").trim(); }
 
 function render(){
-  // meta
   els.eventTitle.textContent = state.meta.event || "—";
   els.distance.textContent = state.meta.distance || "—";
   els.extras.textContent = state.meta.extras || "";
 
-  // heat
   if(!state.heats.length){
     els.heatNo.textContent = "—";
     clearCard(els.leftCard);
@@ -152,7 +140,6 @@ function render(){
   fillCard(els.leftCard, heat.wt);
   fillCard(els.rightCard, heat.rd);
 
-  // active pill styling
   [...document.querySelectorAll(".heat-pill")].forEach(p=>{
     p.classList.toggle("active", Number(p.dataset.no) === heat.no);
   });
