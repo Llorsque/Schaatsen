@@ -5,83 +5,84 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Schaatseb — Head to Head</title>
   <link rel="stylesheet" href="./styles.css" />
-  <!-- pdf.js (pin to stable cdnjs v3 UMD build) -->
+  <!-- pdf.js via cdnjs (stable global build) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
-    // Configure pdf.js worker explicitly (same version, same CDN & origin)
     if (window['pdfjsLib']) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
     }
   </script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">⛸️</span>
-      <span class="title">Schaatseb — Head to Head</span>
-    </div>
+  <div id="frame">
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">⛸️</span>
+        <span class="title">Schaatseb — Head to Head</span>
+      </div>
 
-    <label class="file-label">
-      <input type="file" id="pdfInput" accept="application/pdf" />
-      <span>PDF uploaden</span>
-    </label>
-  </header>
+      <label class="file-label">
+        <input type="file" id="pdfInput" accept="application/pdf" />
+        <span>PDF uploaden</span>
+      </label>
+    </header>
 
-  <main id="app">
-    <section class="meta">
-      <h1 id="eventTitle">—</h1>
-      <h2 id="distance">—</h2>
-      <div id="extras" class="extras"></div>
-    </section>
+    <main id="app">
+      <section class="meta">
+        <h1 id="eventTitle">—</h1>
+        <h2 id="distance">—</h2>
+        <div id="extras" class="extras"></div>
+      </section>
 
-    <section class="h2h">
-      <article class="lane lane-left">
-        <h3>Wit (wt)</h3>
-        <div class="card" id="leftCard">
-          <div class="row"><span class="label">Naam</span><span class="value" data-field="name"></span></div>
-          <div class="row"><span class="label">Cat</span><span class="value" data-field="cat"></span></div>
-          <div class="row"><span class="label">Land</span><span class="value" data-field="nation"></span></div>
-          <div class="row times">
-            <div><span class="tiny">PR</span><span class="value" data-field="pr"></span></div>
-            <div><span class="tiny">ST</span><span class="value" data-field="st"></span></div>
-            <div><span class="tiny">Tijd</span><span class="value" data-field="time"></span></div>
+      <section class="h2h">
+        <article class="lane lane-left">
+          <h3>Wit (wt)</h3>
+          <div class="card" id="leftCard">
+            <div class="row"><span class="label">Naam</span><span class="value" data-field="name"></span></div>
+            <div class="row"><span class="label">Cat</span><span class="value" data-field="cat"></span></div>
+            <div class="row"><span class="label">Land</span><span class="value" data-field="nation"></span></div>
+            <div class="row times">
+              <div><span class="tiny">PR</span><span class="value" data-field="pr"></span></div>
+              <div><span class="tiny">ST</span><span class="value" data-field="st"></span></div>
+              <div><span class="tiny">Tijd</span><span class="value" data-field="time"></span></div>
+            </div>
           </div>
-        </div>
-      </article>
+        </article>
 
-      <aside class="controls">
-        <button id="prevHeat" class="nav-btn" aria-label="Vorige rit">◀</button>
-        <div class="heat-indicator"><span>Rit</span> <strong id="heatNumber">—</strong></div>
-        <button id="nextHeat" class="nav-btn" aria-label="Volgende rit">▶</button>
-      </aside>
+        <aside class="controls">
+          <button id="prevHeat" class="nav-btn" aria-label="Vorige rit">◀</button>
+          <div class="heat-indicator"><span>Rit</span> <strong id="heatNumber">—</strong></div>
+          <button id="nextHeat" class="nav-btn" aria-label="Volgende rit">▶</button>
+        </aside>
 
-      <article class="lane lane-right">
-        <h3>Rood (rd)</h3>
-        <div class="card" id="rightCard">
-          <div class="row"><span class="label">Naam</span><span class="value" data-field="name"></span></div>
-          <div class="row"><span class="label">Cat</span><span class="value" data-field="cat"></span></div>
-          <div class="row"><span class="label">Land</span><span class="value" data-field="nation"></span></div>
-          <div class="row times">
-            <div><span class="tiny">PR</span><span class="value" data-field="pr"></span></div>
-            <div><span class="tiny">ST</span><span class="value" data-field="st"></span></div>
-            <div><span class="tiny">Tijd</span><span class="value" data-field="time"></span></div>
+        <article class="lane lane-right">
+          <h3>Rood (rd)</h3>
+          <div class="card" id="rightCard">
+            <div class="row"><span class="label">Naam</span><span class="value" data-field="name"></span></div>
+            <div class="row"><span class="label">Cat</span><span class="value" data-field="cat"></span></div>
+            <div class="row"><span class="label">Land</span><span class="value" data-field="nation"></span></div>
+            <div class="row times">
+              <div><span class="tiny">PR</span><span class="value" data-field="pr"></span></div>
+              <div><span class="tiny">ST</span><span class="value" data-field="st"></span></div>
+              <div><span class="tiny">Tijd</span><span class="value" data-field="time"></span></div>
+            </div>
           </div>
-        </div>
-      </article>
-    </section>
+        </article>
+      </section>
 
-    <section id="heatList" class="heat-list" hidden></section>
+      <section id="heatList" class="heat-list" hidden></section>
 
-    <section id="status" class="status">Upload een PDF met ritindeling om te starten.</section>
-    <details class="debug" id="debugBox" hidden>
-      <summary>Debug</summary>
-      <pre id="debugText"></pre>
-    </details>
-  </main>
+      <section id="status" class="status">Upload een PDF met ritindeling om te starten.</section>
+      <details class="debug" id="debugBox" hidden>
+        <summary>Debug</summary>
+        <pre id="debugText"></pre>
+      </details>
+    </main>
 
-  <footer class="footer">
-    <p>Gemaakt voor snelle ijs-visualisatie. PDF-parser afgestemd op KN-stijl lotingsoverzicht (Naam, Cat, Land, PR, ST, Tijd). </p>
-  </footer>
+    <footer class="footer">
+      <p>Gemaakt voor snelle ijs-visualisatie. Parser ondersteunt meerdere PDF-indelingen volgens hetzelfde stramien.</p>
+    </footer>
+  </div>
 
   <script src="./app.js" type="module"></script>
 </body>

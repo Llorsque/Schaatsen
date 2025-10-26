@@ -1,7 +1,8 @@
 /**
- * Schaatseb — Head to Head (cdnjs pdf.js)
- * - pdf.js via cdnjs v3 UMD (global pdfjsLib)
- * - Robuuste parser + debug
+ * Schaatseb — Head to Head (v2)
+ * - cdnjs pdf.js (global pdfjsLib)
+ * - Algemeen robuuste parser voor 'hetzelfde stramien', incl. komma-of-punt seconden
+ * - 16:9 frame + grotere UI
  */
 
 const els = {
@@ -52,15 +53,14 @@ async function onFile(ev){
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data: buf}).promise;
 
-    let text = "";
+    let raw = "";
     for(let i=1;i<=pdf.numPages;i++){
       const page = await pdf.getPage(i);
       const tc = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
-      const pageText = tc.items.map(t => (t.str||"")).join(" ");
-      text += " " + pageText;
+      raw += " " + tc.items.map(t => (t.str||"")).join(" ");
     }
     setStatus("PDF gelezen. Parser draaien…");
-    parseText(text);
+    parseText(raw);
     buildHeatList();
     state.idx = 0;
     render();
@@ -75,6 +75,15 @@ async function onFile(ev){
 function setStatus(msg){ els.status.textContent = msg; }
 function showDebug(s){ els.debugBox.hidden = false; els.debugText.textContent = s; }
 
+/**
+ * Parser die tolerant is voor:
+ * - extra/minder spaties, harde of zachte returns
+ * - optioneel rugnummer (bib)
+ * - categorie varianten (letters+cijfers, lengte 1-6)
+ * - decimaal met punt of komma
+ * - 1–3 tijden (PR, ST, Tijd)
+ * Werkwijze: vind alle segmenten die starten met 'wt' of 'rd', parse ze 'van rechts naar links'.
+ */
 function parseText(text){
   let norm = text
     .replace(/\u00A0/g, " ")
@@ -82,11 +91,11 @@ function parseText(text){
     .replace(/\s{2,}/g," ")
     .trim();
 
+  // metadata (losjes)
   const eventMatch =
     norm.match(/World\s*Cup.*?Kwalificatie.*?Toernooi|Kwalificatie.*?Toernooi|World\s*Cup.*?Toernooi/i);
   const distanceMatch =
     norm.match(/(Mannen|Vrouwen)\s*\d{3,5}m/i);
-
   state.meta.event = eventMatch ? tidy(eventMatch[0]) : "Wedstrijd";
   state.meta.distance = distanceMatch ? tidy(distanceMatch[0]) : "Afstand";
 
@@ -97,23 +106,54 @@ function parseText(text){
   if(thialf) extraHints.push(tidy(thialf[0]));
   state.meta.extras = extraHints.join(" · ");
 
-  const rxEntry = /\b(wt|rd)\s+(\d+)\s+(.+?)\s+([A-ZÄÖÜ]{1,5}\d?)\s+([A-Z]{3})\s+((?:\d{1,2}:\d{2}\.\d{2}\s*){1,3})/gi;
-  const entries = [];
+  // Zoek alle wt/rd starts en pak de 'regel' erna tot de volgende wt/rd
+  const segRx = /\b(wt|rd)\b([^wrd]+?)(?=\b(?:wt|rd)\b|$)/gi;
+  const segments = [];
   let m;
-  while((m = rxEntry.exec(norm))){
-    const lane = m[1].toLowerCase();
-    const bib = m[2];
-    const name = tidy(m[3]);
-    const cat = m[4];
-    const nation = m[5];
-    const times = tidy(m[6]).split(/\s+/);
-    const [pr="", st="", raceTime=""] = [times[0]||"", times[1]||"", times[2]||""];
-    entries.push({ lane, bib, name, cat, nation, pr, st, time: raceTime });
+  while((m = segRx.exec(norm))){
+    segments.push({ lane: m[1].toLowerCase(), text: tidy(m[2]) });
   }
 
+  function parseSkaterLoose(s){
+    // Tokenize
+    const parts = s.trim().split(/\s+/);
+    // Vind tijden (mm:ss.xx of mm:ss,xx)
+    const timeRx = /^\d{1,2}:\d{2}[.,]\d{2}$/;
+    const times = [];
+    for(let i=parts.length-1;i>=0;i--){
+      if(timeRx.test(parts[i])){
+        times.unshift(parts[i].replace(',', '.'));
+      } else {
+        // stop zodra we over tijd-lijn heen zijn
+        if(times.length>0) break;
+      }
+    }
+    const timeCount = times.length;
+    const nationIdx = parts.length - timeCount - 1;
+    const nation = nationIdx >= 0 ? parts[nationIdx] : "";
+    const catIdx = nationIdx - 1;
+    const cat = catIdx >= 0 ? parts[catIdx] : "";
+    // bib optioneel als eerste token numeriek
+    let nameStart = 0;
+    let bib = "";
+    if(/^\d+$/.test(parts[0])){
+      bib = parts[0];
+      nameStart = 1;
+    }
+    const name = parts.slice(nameStart, catIdx >= nameStart ? catIdx : parts.length - timeCount - 1).join(" ");
+    const [pr="", st="", raceTime=""] = [times[0]||"", times[1]||"", times[2]||""];
+    return { bib, name: tidy(name), cat, nation, pr, st, time: raceTime };
+  }
+
+  // Parse alle segmenten en pair wt/rd
+  const wtQ = [];
+  const rdQ = [];
+  for(const seg of segments){
+    const rec = parseSkaterLoose(seg.text);
+    if(seg.lane === "wt") wtQ.push(rec);
+    else rdQ.push(rec);
+  }
   const heats = [];
-  let wtQ = entries.filter(e=>e.lane==="wt");
-  let rdQ = entries.filter(e=>e.lane==="rd");
   const n = Math.min(wtQ.length, rdQ.length);
   for(let i=0;i<n;i++){
     heats.push({ no: i+1, wt: wtQ[i], rd: rdQ[i] });
