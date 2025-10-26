@@ -1,8 +1,8 @@
 /**
- * Schaatseb — Head to Head (static)
+ * Schaatseb — Head to Head (robust parser)
  * - Leest tekst uit geüploade PDF met pdf.js
- * - Parseert heats (rit 1..N) met wt (links) en rd (rechts)
- * - Toont H2H + navigatie + ritnummer
+ * - Parser is toleranter voor spaties/enter-variaties en ontbrekende 'rit' kopjes
+ * - Pairt 'wt' en 'rd' in volgorde als fallback en nummert ritten 1..N
  */
 
 const els = {
@@ -17,6 +17,8 @@ const els = {
   next: document.getElementById("nextHeat"),
   heatNo: document.getElementById("heatNumber"),
   heatList: document.getElementById("heatList"),
+  debugBox: document.getElementById("debugBox"),
+  debugText: document.getElementById("debugText"),
 };
 
 let state = {
@@ -50,9 +52,10 @@ async function onFile(ev){
     let text = "";
     for(let i=1;i<=pdf.numPages;i++){
       const page = await pdf.getPage(i);
-      const tc = await page.getTextContent();
-      const pageText = tc.items.map(t => t.str).join("\n");
-      text += "\n" + pageText;
+      const tc = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
+      // Combineer alle items met spaties (betere robuustheid dan harde newlines)
+      const pageText = tc.items.map(t => (t.str||"")).join(" ");
+      text += " " + pageText;
     }
     setStatus("PDF gelezen. Parser draaien…");
     parseText(text);
@@ -62,106 +65,70 @@ async function onFile(ev){
     setStatus(`Klaar. Gevonden ritten: ${state.heats.length}`);
   }catch(err){
     console.error(err);
-    setStatus("Kon PDF niet verwerken. Controleer het bestand en probeer opnieuw.");
+    setStatus("Kon PDF niet verwerken. Mogelijk is dit een gescande/afbeelding-PDF (geen tekst).");
+    showDebug(String(err));
   }
 }
 
 function setStatus(msg){ els.status.textContent = msg; }
+function showDebug(s){ els.debugBox.hidden = false; els.debugText.textContent = s; }
 
 /**
- * Parsing strategy:
- * - Haal metadata (event & afstand) uit globale tekst.
- * - Vind blokken per rit. In je voorbeeld staat elke rit als:
- *   <rit-nummer>\nwt <...>\n\nrd <...>
- * - Parse regels 'wt' en 'rd':
- *   wt|rd <rugnr> <Naam...> <Cat> <Land> <tijd1> <tijd2> <tijd3?>
- *   We mappen tijd1->PR, tijd2->ST, tijd3->Tijd (flexibel: als minder aanwezig, laten we leeg).
+ * Parsing strategy (robuust):
+ * 1) Metadata: losse regexen op de samengevoegde tekst.
+ * 2) Vind alle 'wt <bib> <naam...> <cat> <land> <tijden>' en 'rd ...' met flexibele regex.
+ * 3) Pair in volgorde (wt1+rd1 => rit1, etc.). Als een ritnummer gevonden wordt, gebruiken we dat,
+ *    anders nummeren we lineair.
  */
 function parseText(text){
   // normaliseer whitespace
   let norm = text
     .replace(/\u00A0/g, " ")
     .replace(/[ \t]+/g," ")
-    .replace(/\n{2,}/g,"\n\n")
+    .replace(/\s{2,}/g," ")
     .trim();
 
   // metadata
   const eventMatch =
-    norm.match(/World Cup.*Kwalificatie.*Toernooi|Kwalificatie.*Toernooi|World Cup.*Toernooi/i);
+    norm.match(/World\s*Cup.*?Kwalificatie.*?Toernooi|Kwalificatie.*?Toernooi|World\s*Cup.*?Toernooi/i);
   const distanceMatch =
-    norm.match(/(Mannen|Vrouwen)\s+\d{3,5}m/i);
+    norm.match(/(Mannen|Vrouwen)\s*\d{3,5}m/i);
 
   state.meta.event = eventMatch ? tidy(eventMatch[0]) : "Wedstrijd";
   state.meta.distance = distanceMatch ? tidy(distanceMatch[0]) : "Afstand";
 
-  // optionele extra regels (datum/locatie) als gevonden
   const extraHints = [];
-  const thialf = norm.match(/Thialf.*Heerenveen/i);
-  const dateTime = norm.match(/Datum:\s*[\d-]{8,}\s+\d{1,2}:\d{2}:\d{2}/i);
+  const thialf = norm.match(/Thialf.*?Heerenveen/i);
+  const dateTime = norm.match(/\b(20\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}).{0,10}\b\d{1,2}:\d{2}(:\d{2})?/i);
   if(dateTime) extraHints.push(tidy(dateTime[0]));
   if(thialf) extraHints.push(tidy(thialf[0]));
   state.meta.extras = extraHints.join(" · ");
 
-  // Heats parse:
-  // Zoek een patroon van:
-  //   <ritnummer>\nwt ...\n\nrd ...
-  const heatBlocks = [];
-  // Splits op dubbele newline + ritnummer op eigen regel
-  const blocks = norm.split(/\n{2,}(?=\d+\s*\n)/g);
-
-  for(const block of blocks){
-    const numMatch = block.match(/^\s*(\d+)\s*$/m);
-    const wtMatch = block.match(/^\s*wt\s+(.+)$/mi);
-    const rdMatch = block.match(/^\s*rd\s+(.+)$/mi);
-
-    if(numMatch && wtMatch && rdMatch){
-      const no = parseInt(numMatch[1],10);
-      const wt = parseSkaterLine(wtMatch[1]);
-      const rd = parseSkaterLine(rdMatch[1]);
-      heatBlocks.push({ no, wt, rd });
-    }
+  // Alle wt/rd lijnen (flexibel):
+  const rxEntry = /\b(wt|rd)\s+(\d+)\s+(.+?)\s+([A-ZÄÖÜ]{1,5}\d?)\s+([A-Z]{3})\s+((?:\d{1,2}:\d{2}\.\d{2}\s*){1,3})/gi;
+  const entries = [];
+  let m;
+  while((m = rxEntry.exec(norm))){
+    const lane = m[1].toLowerCase();
+    const bib = m[2];
+    const name = tidy(m[3]);
+    const cat = m[4];
+    const nation = m[5];
+    const times = tidy(m[6]).split(/\s+/);
+    const [pr="", st="", raceTime=""] = [times[0]||"", times[1]||"", times[2]||""];
+    entries.push({ lane, bib, name, cat, nation, pr, st, time: raceTime });
   }
 
-  // Sorteren op ritnummer (voor de zekerheid)
-  heatBlocks.sort((a,b)=>a.no - b.no);
-  state.heats = heatBlocks;
-}
-
-function parseSkaterLine(line){
-  // Voorbeeldregel:
-  // "73 Sil van der Veen HA2 NED 6:35.29 6:35.29"
-  // of soms minder tijden: "34 Sjoerd den Hertog HSB NED 6:19.60"
-  const parts = line.trim().split(/\s+/);
-
-  // Zoek van rechts naar links voor tijden (mm:ss.xx)
-  const times = [];
-  for(let i=parts.length-1; i>=0; i--){
-    if(/^\d{1,2}:\d{2}\.\d{2}$/.test(parts[i])){
-      times.unshift(parts[i]);
-    }else{
-      break;
-    }
+  // Pair wt & rd in volgorde
+  const heats = [];
+  let wtQ = entries.filter(e=>e.lane==="wt");
+  let rdQ = entries.filter(e=>e.lane==="rd");
+  const n = Math.min(wtQ.length, rdQ.length);
+  for(let i=0;i<n;i++){
+    heats.push({ no: i+1, wt: wtQ[i], rd: rdQ[i] });
   }
 
-  // Land = direct vóór de tijden
-  const timeCount = times.length;
-  const nationIdx = parts.length - timeCount - 1;
-  const nation = nationIdx >= 0 ? parts[nationIdx] : "";
-
-  // Cat = direct vóór Land
-  const catIdx = nationIdx - 1;
-  const cat = catIdx >= 0 ? parts[catIdx] : "";
-
-  // Rugnummer = allereerste token
-  const bib = parts[0];
-
-  // Naam = alles tussen bib en cat
-  const name = parts.slice(1, catIdx).join(" ");
-
-  // Map tijden: [PR, ST, Tijd] (vul aan met lege strings als er minder zijn)
-  const [pr="", st="", raceTime=""] = [times[0]||"", times[1]||"", times[2]||""];
-
-  return { bib, name: tidy(name), cat, nation, pr, st, time: raceTime };
+  state.heats = heats;
 }
 
 function tidy(s){ return s.replace(/\s+/g," ").trim(); }
