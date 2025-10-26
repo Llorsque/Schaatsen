@@ -1,8 +1,7 @@
 /**
- * Schaatseb — Head to Head (v2)
- * - cdnjs pdf.js (global pdfjsLib)
- * - Algemeen robuuste parser voor 'hetzelfde stramien', incl. komma-of-punt seconden
- * - 16:9 frame + grotere UI
+ * Schaatseb — Head to Head (v3)
+ * - Parser fix: segment regex gebruikt nu [\\s\\S]*? i.p.v. [^wrd]+? (dat kapte namen als 'Woelders' af)
+ * - Nog grotere UI (16:9) met --ui-scale=1.30
  */
 
 const els = {
@@ -22,7 +21,7 @@ const els = {
 };
 
 let state = {
-  heats: [],        // [{no, wt:{...}, rd:{...}}]
+  heats: [],
   meta: { event:"—", distance:"—", extras: "" },
   idx: 0
 };
@@ -75,84 +74,44 @@ async function onFile(ev){
 function setStatus(msg){ els.status.textContent = msg; }
 function showDebug(s){ els.debugBox.hidden = false; els.debugText.textContent = s; }
 
-/**
- * Parser die tolerant is voor:
- * - extra/minder spaties, harde of zachte returns
- * - optioneel rugnummer (bib)
- * - categorie varianten (letters+cijfers, lengte 1-6)
- * - decimaal met punt of komma
- * - 1–3 tijden (PR, ST, Tijd)
- * Werkwijze: vind alle segmenten die starten met 'wt' of 'rd', parse ze 'van rechts naar links'.
- */
 function parseText(text){
   let norm = text
-    .replace(/\u00A0/g, " ")
-    .replace(/[ \t]+/g," ")
-    .replace(/\s{2,}/g," ")
+    .replace(/\\u00A0/g, " ")
+    .replace(/[ \\t]+/g," ")
+    .replace(/\\s{2,}/g," ")
     .trim();
 
-  // metadata (losjes)
+  // metadata
   const eventMatch =
-    norm.match(/World\s*Cup.*?Kwalificatie.*?Toernooi|Kwalificatie.*?Toernooi|World\s*Cup.*?Toernooi/i);
+    norm.match(/World\\s*Cup.*?Kwalificatie.*?Toernooi|Kwalificatie.*?Toernooi|World\\s*Cup.*?Toernooi/i);
   const distanceMatch =
-    norm.match(/(Mannen|Vrouwen)\s*\d{3,5}m/i);
+    norm.match(/(Mannen|Vrouwen)\\s*\\d{3,5}m/i);
   state.meta.event = eventMatch ? tidy(eventMatch[0]) : "Wedstrijd";
   state.meta.distance = distanceMatch ? tidy(distanceMatch[0]) : "Afstand";
 
   const extraHints = [];
   const thialf = norm.match(/Thialf.*?Heerenveen/i);
-  const dateTime = norm.match(/\b(20\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}).{0,10}\b\d{1,2}:\d{2}(:\d{2})?/i);
+  const dateTime = norm.match(/\\b(20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}|\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}).{0,10}\\b\\d{1,2}:\\d{2}(:\\d{2})?/i);
   if(dateTime) extraHints.push(tidy(dateTime[0]));
   if(thialf) extraHints.push(tidy(thialf[0]));
   state.meta.extras = extraHints.join(" · ");
 
-  // Zoek alle wt/rd starts en pak de 'regel' erna tot de volgende wt/rd
-  const segRx = /\b(wt|rd)\b([^wrd]+?)(?=\b(?:wt|rd)\b|$)/gi;
-  const segments = [];
-  let m;
-  while((m = segRx.exec(norm))){
-    segments.push({ lane: m[1].toLowerCase(), text: tidy(m[2]) });
-  }
-
-  function parseSkaterLoose(s){
-    // Tokenize
-    const parts = s.trim().split(/\s+/);
-    // Vind tijden (mm:ss.xx of mm:ss,xx)
-    const timeRx = /^\d{1,2}:\d{2}[.,]\d{2}$/;
-    const times = [];
-    for(let i=parts.length-1;i>=0;i--){
-      if(timeRx.test(parts[i])){
-        times.unshift(parts[i].replace(',', '.'));
-      } else {
-        // stop zodra we over tijd-lijn heen zijn
-        if(times.length>0) break;
-      }
-    }
-    const timeCount = times.length;
-    const nationIdx = parts.length - timeCount - 1;
-    const nation = nationIdx >= 0 ? parts[nationIdx] : "";
-    const catIdx = nationIdx - 1;
-    const cat = catIdx >= 0 ? parts[catIdx] : "";
-    // bib optioneel als eerste token numeriek
-    let nameStart = 0;
-    let bib = "";
-    if(/^\d+$/.test(parts[0])){
-      bib = parts[0];
-      nameStart = 1;
-    }
-    const name = parts.slice(nameStart, catIdx >= nameStart ? catIdx : parts.length - timeCount - 1).join(" ");
-    const [pr="", st="", raceTime=""] = [times[0]||"", times[1]||"", times[2]||""];
-    return { bib, name: tidy(name), cat, nation, pr, st, time: raceTime };
-  }
-
-  // Parse alle segmenten en pair wt/rd
+  // Segmenteer op wt/rd tot volgende wt/rd (laat ALLES toe ertussen, non-greedy)
+  const segRx = /\\b(wt|rd)\\b\\s*([\\s\\S]*?)(?=\\b(?:wt|rd)\\b|$)/gi;
   const wtQ = [];
   const rdQ = [];
-  for(const seg of segments){
-    const rec = parseSkaterLoose(seg.text);
-    if(seg.lane === "wt") wtQ.push(rec);
-    else rdQ.push(rec);
+  let m;
+  while((m = segRx.exec(norm))){
+    const lane = m[1].toLowerCase();
+    const segText = tidy(m[2]);
+    const rec = parseSkaterLoose(segText);
+    if(rec){
+      if(lane === "wt") wtQ.push(rec);
+      else rdQ.push(rec);
+    }
   }
+
+  // Pairing
   const heats = [];
   const n = Math.min(wtQ.length, rdQ.length);
   for(let i=0;i<n;i++){
@@ -161,7 +120,39 @@ function parseText(text){
   state.heats = heats;
 }
 
-function tidy(s){ return s.replace(/\s+/g," ").trim(); }
+function parseSkaterLoose(s){
+  if(!s) return null;
+  const parts = s.trim().split(/\\s+/);
+  // Tijden achteraan (mm:ss.xx of mm:ss,xx)
+  const timeRx = /^\\d{1,2}:\\d{2}[.,]\\d{2}$/;
+  const times = [];
+  for(let i=parts.length-1;i>=0;i--){
+    if(timeRx.test(parts[i])){
+      times.unshift(parts[i].replace(',', '.'));
+    } else if(times.length>0){
+      break;
+    }
+  }
+  const timeCount = times.length;
+  if(timeCount === 0){
+    // misschien staat er "Tijd" als header of lege tijd → negeren
+    return null;
+  }
+  const nationIdx = parts.length - timeCount - 1;
+  const nation = nationIdx >= 0 ? parts[nationIdx] : "";
+  const catIdx = nationIdx - 1;
+  const cat = catIdx >= 0 ? parts[catIdx] : "";
+
+  let nameStart = 0;
+  let bib = "";
+  if(/^\\d+$/.test(parts[0])){ bib = parts[0]; nameStart = 1; }
+
+  const name = parts.slice(nameStart, Math.max(nameStart, catIdx)).join(" ");
+  const [pr="", st="", raceTime=""] = [times[0]||"", times[1]||"", times[2]||""];
+  return { bib, name: tidy(name), cat, nation, pr, st, time: raceTime };
+}
+
+function tidy(s){ return s.replace(/\\s+/g," ").trim(); }
 
 function render(){
   els.eventTitle.textContent = state.meta.event || "—";
@@ -179,6 +170,11 @@ function render(){
 
   fillCard(els.leftCard, heat.wt);
   fillCard(els.rightCard, heat.rd);
+
+  // bouw quick list als nog niet aanwezig
+  if(!document.querySelector(".heat-pill")){
+    buildHeatList();
+  }
 
   [...document.querySelectorAll(".heat-pill")].forEach(p=>{
     p.classList.toggle("active", Number(p.dataset.no) === heat.no);

@@ -1,18 +1,8 @@
-# Schaatseb — Head to Head (v2)
+# Schaatseb — Head to Head (v3)
 
-**Wat is nieuw**
-- **Groter UI** in een **16:9 frame** dat automatisch schaalt. Alles is ~22% groter (pas `--ui-scale` aan in `styles.css`).
-- **Algemene parser** die:
-  - `wt`/`rd` segmenten vindt, ongeacht regelafbrekingen;
-  - optioneel **rugnummer** ondersteunt;
-  - **categorie** met letters/cijfers herkent (1–6 tekens);
-  - **NAT** (3 hoofdletters) oppikt;
-  - **1–3 tijden** slikt (met **komma of punt** als decimaal);
-  - PR/ST/Tijd mapt in die volgorde;
-  - paren maakt op volgorde: 1e wt + 1e rd ⇒ Rit 1, etc.
+**Fixes**
+- Parser segmenteerde eerder fout door `[^wrd]+?` (dit brak o.a. op namen als **Woelders**). Nu gebruiken we `([\s\S]*?)` tot de volgende `wt|rd` → werkt op varianten met dezelfde kolommen.
+- UI nog groter; alles schaalt binnen het **16:9** frame. Stel `--ui-scale` in `styles.css` bij naar smaak.
 
 **Gebruik**
-1. Upload je PDF met ritindeling.
-2. Navigeer met ◀ ▶ of de rit-pilltjes.
-
-> Tip: wil je nog groter? Zet in `styles.css` `--ui-scale` bijvoorbeeld op `1.35`.
+Bestanden vervangen, hard refresh, PDF uploaden. Als het nog hapert, open het *Debug* blok en deel de tekst daar; dan finetunen we de laatste regex.
